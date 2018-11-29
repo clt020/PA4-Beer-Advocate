@@ -6,14 +6,13 @@ import numpy as np
 import os
 import matplotlib.pyplot as plt
 from models import *
-from config import cfg
+#from configs import cfg
 import pandas as pd
 from nltk.translate import bleu_score
 
 
 def load_data(fname):
-    # TODO: From the csv file given by filename and return a pandas DataFrame of the read csv.
-    raise NotImplementedError
+    return pd.read_csv(fname)
 
 
 def process_train_data(data):

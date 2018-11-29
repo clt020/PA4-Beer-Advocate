@@ -7,67 +7,94 @@ class bLSTM(nn.Module):
     def __init__(self, config):
         super(bLSTM, self).__init__()
         
-        # intilize structure of the lstm
-        self.lstm = nn.LSTMCell(config['input_dim'],config['hidden_dim'])
-        self.hidden2char = nn.Linear(config['hidden_dim'],config['output_dim'])
+        # gets the configurations
+        self.is_bidirectional = config['bidirectional']
         
-        # zero intialize the hidden vectors and cell state( no info at start ) 
-        self.initialCx = torch.zeros(config['batch_size'],config['hidden_dim']).cuda()
-        self.initialHx = torch.zeros(config['batch_size'],config['hidden_dim']),cuda()
+        # initializes the structure of the LSTM
+        #self.lstm = nn.LSTMCell(config['input_dim'],config['hidden_dim'])
+        self.lstm = nn.LSTM(config['input_dim'], config['hidden_dim'], config['layers'], 
+                            batch_first = True, dropout = config['dropout'], bidirectional = config['bidirectional'])
         
-        self.softmax = nn.LogSoftMax(dim = 1) # dim 1 for sequence length (1 character)
+        # initializes the output layer and its activation function
+        self.output_layer = nn.Linear(config['hidden_dim'], config['output_dim'])
+        #self.output_activation = nn.LogSoftMax(dim = 1) # dim 1 for sequence length (1 character)
        
+        # creates an initialization for the hidden states and cell states (zeros to denote no info at start) 
+        self.initialC = torch.zeros(config['layers'], config['batch_size'], config['hidden_dim'])
+        self.initialH = torch.zeros(config['layers'], config['batch_size'], config['hidden_dim'])
+        if config['cuda']:
+            self.initialC = self.initialC.cuda()
+            self.initialH = self.initialH.cuda()
         
-        # Initialize your layers and variables that you want;
-        # Keep in mind to include initialization for initial hidden states of LSTM, you
-        # are going to need it, so design this class wisely.
         
-    def forward(self, sequence):
+    def forward(self, sequence, h0 = None, c0 = None):
         # Takes in the sequence of the form (batch_size x sequence_length x input_dim) and
         # returns the output of form (batch_size x sequence_length x output_dim)
 
-        cx = self.initalCx
-        hx = self.initalHx
-        out = []
+        # initializes the hidden states and cell states to zeros if they are not given
+        if not h0:
+            h0 = self.initialH
+        if not c0:
+            c0 = self.initialC
         
-        for i in range(sequence.shape[1]):
-            hx, cx = self.lstm(sequence[:,i,:],(hx,cx))
-            out.append(self.softmax(self.hidden2char(hx)))
+        #for i in range(sequence.shape[1]):
+            #hx, cx = self.lstm(sequence[:,i,:],(hx,cx))
+            #out.append(self.softmax(self.hidden2char(hx)))
         
-        out = torch.stack(out, 1)
+        # passes the input to the lstm
+        hidden_output, (ht, ct) = self.lstm(sequence, (h0, c0))
         
-        return out
+        # passes the output of the hidden layer to the output layer
+        output = self.output_layer(hidden_output)
+        
+        #out = torch.stack(out, 1)
+        
+        return output, (ht, ct)
 
 
 class bGRU(nn.Module):
     def __init__(self, config):
         super(bGRU, self).__init__()
         
-        # intilize structure of the lstm
-        self.gru = nn.GRUCell(config['input_dim'],config['hidden_dim'])
-        self.hidden2char = nn.Linear(config['hidden_dim'],config['output_dim'])
+        # gets the configurations
+        self.is_bidirectional = config['bidirectional']
         
-        # zero intialize the hidden vectors and cell state( no info at start ) 
-        self.initialHx = torch.zeros(config['batch_size'],config['hidden_dim']),cuda()
+        # initializes the structure of the LSTM
+        #self.gru = nn.GRUCell(config['input_dim'],config['hidden_dim'])
+        self.gru = nn.GRU(config['input_dim'], config['hidden_dim'], config['layers'], 
+                            batch_first = True, dropout = config['dropout'], bidirectional = config['bidirectional'])
         
-        self.softmax = nn.LogSoftMax(dim = 1) # dim 1 for sequence length (1 character)
+        # initializes the output layer and its activation function
+        self.output_layer = nn.Linear(config['hidden_dim'], config['output_dim'])
+        #self.output_activation = nn.LogSoftMax(dim = 1) # dim 1 for sequence length (1 character)
        
-        
-        # Initialize your layers and variables that you want;
-        # Keep in mind to include initialization for initial hidden states of LSTM, you
-        # are going to need it, so design this class wisely.
-        
-    def forward(self, sequence):
+        # creates an initialization for the hidden states (zeros to denote no info at start)
+        self.initialH = torch.zeros(config['layers'], config['batch_size'], config['hidden_dim'], )
+        if config['cuda']:
+            self.initialH = self.initialH.cuda()
+            
+            
+    def forward(self, sequence, h0 = None):
         # Takes in the sequence of the form (batch_size x sequence_length x input_dim) and
         # returns the output of form (batch_size x sequence_length x output_dim)
 
-        hx = self.initalHx
-        out = []
+        #hx = self.initalHx
+        #out = []
         
-        for i in range(sequence.shape[1]):
-            hx = self.lstm(sequence[:,i,:],hx)
-            out.append(self.softmax(self.hidden2char(hx)))
+        #for i in range(sequence.shape[1]):
+            #hx = self.lstm(sequence[:,i,:],hx)
+            #out.append(self.softmax(self.hidden2char(hx)))
+            
+        # initializes the hidden states to zeros if they are not given
+        if not h0:
+            h0 = self.initialH
+            
+        # passes the input to the gru
+        hidden_output, ht = self.gru(sequence, h0)
         
-        out = torch.stack(out, 1)
+        # passes the output of the hidden layer to the output layer
+        output = self.output_layer(hidden_output)
         
-        return out
+        #out = torch.stack(out, 1)
+        
+        return output, ht
