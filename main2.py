@@ -526,8 +526,8 @@ def save_to_file(outputs, fname):
 
 ### MAIN FUNCTION ###
 if __name__ == "__main__":
-    train_data_fname = "/datasets/cs190f-public/BeerAdvocateDataset/Beeradvocate_Train.csv"
-    test_data_fname = "/datasets/cs190f-public/BeerAdvocateDataset/Beeradvocate_Test.csv"
+    train_data_fname = "/datasets/cs190f-public/BeerAdvocateDataset/BeerAdvocate_Train.csv"
+    test_data_fname = "/datasets/cs190f-public/BeerAdvocateDataset/BeerAdvocate_Test.csv"
     out_fname = "Output_Reviews.txt"
 
     # loads the data
