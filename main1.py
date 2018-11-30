@@ -43,13 +43,15 @@ def encode_one_hot(data, dictionary):
 
 
 # converts a one-hot encoding of the reviews into strings
-# data: 2d list; list of one-hot encoding
+# data: 3d torch list; list of one-hot encoding
 # dictionary: dict; mapping from the index to the character
 # return: review strings (1d list)
 def decode_one_hot_reviews(data):
-    decoded = [''.join([cfg['valid_char'][torch.argmax(c)] 
-                if torch.argmax(c) < cfg['valid_char_len'] 
-                else '' for c in review]) for review in data]
+    extended_char = cfg['valid_char'] + 'SEP'
+    decoded = [''.join([extended_char[torch.argmax(c)] for c in review]) for review in data]
+    #decoded = [''.join([cfg['valid_char'][torch.argmax(c)] 
+                #if torch.argmax(c) < cfg['valid_char_len'] 
+                #else '' for c in review]) for review in data]
     
     return decoded
 
@@ -142,7 +144,7 @@ def process_test_data(orig_data, dictionary):
     print ("Original data shape: " + str(orig_data.shape))
     
     # takes the relevant columns
-    data = orig_data[['beer/style', 'review/overall']]
+    data = orig_data[['beer/style', 'review/overall']].copy()
     
     # --- DATA CLEANING ---
     
@@ -224,7 +226,7 @@ def train(model, model_name, criterion, optimizer, computing_device, x_train, y_
             one_hot_length = cfg['output_dim']
             final_batch_x = []
             for features, reviews in zip(batch_x, padded_reviews):
-                for char_index in reviews:
+                for char_index in reviews[:-1]:
                     one_hot_encoding = np.zeros(one_hot_length)
                     one_hot_encoding[char_index] = 1
                     final_features = np.hstack((features, one_hot_encoding))
@@ -234,7 +236,7 @@ def train(model, model_name, criterion, optimizer, computing_device, x_train, y_
             final_batch_x = np.array(final_batch_x)
 
             # resizes the flattened array into batch_size x sequence_length x feature_length
-            final_batch_x.resize(padded_reviews.shape[0], padded_reviews.shape[1], final_batch_x.shape[1])
+            final_batch_x.resize(padded_reviews.shape[0], padded_reviews.shape[1] - 1, final_batch_x.shape[1])
 
             # converts final input array to tensor
             final_batch_x = torch.from_numpy(final_batch_x).float().to(computing_device)
@@ -258,7 +260,7 @@ def train(model, model_name, criterion, optimizer, computing_device, x_train, y_
             outputs = outputs.view(-1, outputs.shape[2])
 
             # creates the targets and reshapes it to a single dimension
-            targets = torch.from_numpy(padded_reviews).long()
+            targets = torch.from_numpy(padded_reviews[:, 1:]).long()
             targets = targets.view(-1)
 
             # passes the outputs and targets to the loss function and backpropagates
@@ -280,7 +282,7 @@ def train(model, model_name, criterion, optimizer, computing_device, x_train, y_
 
 
         train_loss.append(np.mean(losses))
-        torch.save(model, model_name + "_e" + epoch + ".pt")
+        torch.save(model, model_name + "_e" + str(epoch) + ".pt")
         print()
 
         print ('----- Validating -----')
@@ -308,7 +310,7 @@ def train(model, model_name, criterion, optimizer, computing_device, x_train, y_
                 one_hot_length = cfg['output_dim']
                 final_batch_x = []
                 for features, reviews in zip(batch_x, padded_reviews):
-                    for char_index in reviews:
+                    for char_index in reviews[:-1]:
                         one_hot_encoding = np.zeros(one_hot_length)
                         one_hot_encoding[char_index] = 1
                         final_features = np.hstack((features, one_hot_encoding))
@@ -318,7 +320,7 @@ def train(model, model_name, criterion, optimizer, computing_device, x_train, y_
                 final_batch_x = np.array(final_batch_x)
 
                 # resizes the flattened array into batch_size x sequence_length x feature_length
-                final_batch_x.resize(padded_reviews.shape[0], padded_reviews.shape[1], final_batch_x.shape[1])
+                final_batch_x.resize(padded_reviews.shape[0], padded_reviews.shape[1] - 1, final_batch_x.shape[1])
 
                 # converts final input array to tensors
                 final_batch_x = torch.from_numpy(final_batch_x).float().to(computing_device)
@@ -332,7 +334,7 @@ def train(model, model_name, criterion, optimizer, computing_device, x_train, y_
                 predicted_reviews = decode_one_hot_reviews(soft_outputs)
                 
                 for a, p in zip(actual_reviews, predicted_reviews):
-                    bleus.append(sentence_bleu(a.split(), p.split(), smoothing_function = bleu_smoothing.method1))
+                    bleus.append(sentence_bleu(a.split(), p.split(), weights = [1.0], smoothing_function = bleu_smoothing.method1))
                     
                 for i in range(1):
                     print ("Actual Review: " + actual_reviews[i])
@@ -343,7 +345,7 @@ def train(model, model_name, criterion, optimizer, computing_device, x_train, y_
                 outputs = outputs.view(-1, outputs.shape[2])
 
                 # creates the targets and reshapes it to a single dimension
-                targets = torch.from_numpy(padded_reviews).long()
+                targets = torch.from_numpy(padded_reviews[:, 1:]).long()
                 targets = targets.view(-1)
 
                 # passes the outputs and targets to the loss function
@@ -352,7 +354,7 @@ def train(model, model_name, criterion, optimizer, computing_device, x_train, y_
                 losses.append(loss.item())
 
                 print("Batch start index: " + str(start_index))
-                print("Loss: " + str(loss.item()) + " | BLEU score: " + str(np.mean(valid_bleu)))
+                print("Loss: " + str(loss.item()) + " | BLEU score: " + str(np.mean(bleus)))
                 print("Time elapsed: " + str(time.time() - start_time))
 
                 start_index = end_index
@@ -391,6 +393,7 @@ def process_results(model_name, train_loss, valid_loss, valid_bleu):
     print ("Validation Bleu Score: " + str(valid_bleu))
 
     # graphs the loss curves
+    plt.clf()
     plt.plot(range(len(train_loss)), train_loss, 'b--', label = 'Training Loss')
     plt.plot(range(len(valid_loss)), valid_loss, 'r--', label = 'Validation Loss')
 
@@ -402,7 +405,9 @@ def process_results(model_name, train_loss, valid_loss, valid_bleu):
 
     plt.savefig(model_name + " Loss.png")
     
+    
     # graphs the bleu score curve
+    plt.clf()
     plt.plot(range(len(valid_bleu)), valid_bleu, 'r--', label = 'Validation Bleu Score')
     
     plt.grid(True)
@@ -414,10 +419,103 @@ def process_results(model_name, train_loss, valid_loss, valid_bleu):
     plt.savefig(model_name + " Bleu Score.png")
     
     
-def generate(model, X_test, cfg):
+def sample(outputs, temperature):
+    logged = np.log(outputs) / temperature
+    exped = np.exp(logged)
+    sigmoided = exped / np.sum(exped)
+    
+    return np.random.multinomial(1, sigmoided)
+    
+def generate(model, x_test, cfg):
     # TODO: Given n rows in test data, generate a list of n strings, where each string is the review
     # corresponding to each input row in test data.
-    raise NotImplementedError
+    
+    predicted_reviews = []
+    extended_char = cfg['valid_char'] + 'SEP'
+    
+    start_index = 0
+    end_index = cfg['batch_size']
+    
+    start_time = time.time()
+
+    print ('----- Testing -----')
+    while start_index < len(x_test):
+        # takes the minibatch subset
+        batch_x = x_test[start_index:end_index]
+        
+        # sets the outputs as the <SOS> tag for each review
+        outputs = np.zeros((cfg['batch_size'], cfg['output_dim']))
+        outputs[:, cfg['valid_char_len']] = 1
+        
+        # initializes the states
+        ht = None
+        ct = None
+        
+        # initializes the predicted sentences
+        sentences = [[] for _ in range(cfg['batch_size'])]
+        
+        # samples the next character until all are either <EOS> or <PAD> (all 1s are in the last 2 columns)
+        while np.sum(outputs[:, :-2]) < cfg['batch_size'] and len(sentences[0]) < cfg['max_len']:
+            # concatenates the outputs (previous characters) to the metadata to get the inputs
+            final_batch_x = np.hstack((batch_x, outputs))
+            
+            # resizes the array into batch_size x sequence_length (1) x feature_length
+            final_batch_x.resize(final_batch_x.shape[0], 1, final_batch_x.shape[1])
+
+            # converts final input array to tensor
+            final_batch_x = torch.from_numpy(final_batch_x).float().to(computing_device)
+
+            # passes the final input array to the model's forward pass
+            if isinstance(model, bLSTM):
+                outputs, (ht, ct) = model(final_batch_x, ht, ct)
+                
+            else:
+                outputs, ht = model(final_batch_x, ht)
+                
+            outputs = np.array([sample(c, cfg['gen_temp']) for c in outputs])
+            
+            sentences = np.hstack((sentences, [[np.argmax(c)] for c in outputs]))
+            
+            
+        
+        decoded = [''.join([extended_char[c] for c in review]) for review in sentences]
+        predicted_reviews.append(decoded)
+        '''
+        for s in sentences:
+            decoded = ''
+            for c in s:
+                if c < cfg['valid_char_len']:
+                    decoded = decoded + cfg['valid_char'][c]
+                    
+                else:
+                    break
+                    
+            predicted_reviews.append(decoded)
+        '''
+
+        #print ("Predicted Review: " + predicted_reviews[start_index])
+        print ("Predicted Review: " + decoded[0])
+            
+        print("Batch start index: " + str(start_index))
+        print("Time elapsed: " + str(time.time() - start_time))
+
+        start_index = end_index
+        end_index += cfg['batch_size']
+        
+        if start_index == len(x_test):
+            break
+
+        # case when the remaining data count is less than a minibatch
+        if end_index > len(x_test):
+            # adjusts the start and end indices to make the last subset the size of a minibatch
+            end_index = len(x_test)
+            start_index = end_index - cfg['batch_size']
+            
+            # removes the last few predictions to avoid duplicates
+            predicted_reviews = predicted_reviews[:start_index]
+
+    print()
+    return predicted_reviews
     
     
 def save_to_file(outputs, fname):
@@ -427,7 +525,6 @@ def save_to_file(outputs, fname):
 
 
 ### MAIN FUNCTION ###
-
 if __name__ == "__main__":
     train_data_fname = "Beeradvocate_Train.csv"
     test_data_fname = "Beeradvocate_Test.csv"
@@ -435,12 +532,12 @@ if __name__ == "__main__":
 
     # loads the data
     train_data = load_data(train_data_fname, cfg['num_data'])
-    #test_data = load_data(test_data_fname, cfg['num_data'])
+    test_data = load_data(test_data_fname, 50)
 
     # processes the data to get the train, valid, and test sets
     train_data, train_labels, beer_to_index = process_train_data(train_data)
     x_train, y_train, x_valid, y_valid = train_valid_split(train_data, train_labels, cfg['train_percentage'])
-    #x_test = process_test_data(test_data, beer_to_index)
+    x_test = process_test_data(test_data, beer_to_index)
 
     # updates the configurations based on the processed data
     update_configurations(x_train.shape[1])
@@ -458,7 +555,7 @@ if __name__ == "__main__":
         cfg['cuda'] = False
 
     # defines the hyperparameters
-    model_number = 1
+    model_number = '1'
 
     cfg['hidden_dim'] = 32
     cfg['layers'] = 1
@@ -468,20 +565,24 @@ if __name__ == "__main__":
     optimizer = optim.Adam(model.parameters(), cfg['learning_rate'])
     criterion = nn.CrossEntropyLoss()
 
-    train_loss, valid_loss, valid_bleu = train(model, "LSTM" + str(model_number), criterion, optimizer, computing_device, 
+    train_loss, valid_loss, valid_bleu = train(model, "LSTM" + model_number, criterion, optimizer, computing_device, 
                                                x_train, y_train, x_valid, y_valid, cfg)
 
-    process_results("LSTM Model " + str(model_number), train_loss, valid_loss, valid_bleu)
+    process_results("LSTM Model " + model_number, train_loss, valid_loss, valid_bleu)
+
+    predicted_reviews = generate(model, x_test, cfg)
+    print (predicted_reviews)
 
     # trains the GRU model
     model = bGRU(cfg).to(computing_device)
     optimizer = optim.Adam(model.parameters(), cfg['learning_rate'])
     criterion = nn.CrossEntropyLoss()
 
-    train_loss, valid_loss, valid_bleu = train(model, "GRU" + str(model_number), criterion, optimizer, computing_device, 
+    train_loss, valid_loss, valid_bleu = train(model, "GRU" + model_number, criterion, optimizer, computing_device, 
                                                x_train, y_train, x_valid, y_valid, cfg)
 
-    process_results("GRU Model " + str(model_number), train_loss, valid_loss, valid_bleu)
-    
-    
-    
+    process_results("GRU Model " + model_number, train_loss, valid_loss, valid_bleu)
+
+    predicted_reviews = generate(model, x_test, cfg)
+    print (predicted_reviews)
+
