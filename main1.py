@@ -257,11 +257,11 @@ def train(model, model_name, criterion, optimizer, computing_device, x_train, y_
                 print ("Predicted Review: " + predicted_reviews[i])
             
             # reshapes the outputs to N x feature_length (for the loss function)
-            outputs = outputs.view(-1, outputs.shape[2])
+            outputs = outputs.contiguous().view(-1, outputs.shape[2])
 
             # creates the targets and reshapes it to a single dimension
-            targets = torch.from_numpy(padded_reviews[:, 1:]).long()
-            targets = targets.view(-1)
+            targets = torch.from_numpy(padded_reviews[:, 1:]).long().to(computing_device)
+            targets = targets.contiguous().view(-1)
 
             # passes the outputs and targets to the loss function and backpropagates
             loss = criterion(outputs, targets)
@@ -270,7 +270,7 @@ def train(model, model_name, criterion, optimizer, computing_device, x_train, y_
 
             losses.append(loss.item())
 
-            print("Batch start index: " + str(start_index) + " | Loss: " + str(loss.item()))
+            print("E" + str(epoch) + "T Batch start index: " + str(start_index) + " | Loss: " + str(loss.item()))
             print("Time elapsed: " + str(time.time() - start_time))
 
             start_index = end_index
@@ -342,18 +342,18 @@ def train(model, model_name, criterion, optimizer, computing_device, x_train, y_
 
 
                 # resizes the outputs to N x feature_length (for the loss function)
-                outputs = outputs.view(-1, outputs.shape[2])
+                outputs = outputs.contiguous().view(-1, outputs.shape[2])
 
                 # creates the targets and reshapes it to a single dimension
-                targets = torch.from_numpy(padded_reviews[:, 1:]).long()
-                targets = targets.view(-1)
+                targets = torch.from_numpy(padded_reviews[:, 1:]).long().to(computing_device)
+                targets = targets.contiguous().view(-1)
 
                 # passes the outputs and targets to the loss function
                 loss = criterion(outputs, targets)
 
                 losses.append(loss.item())
 
-                print("Batch start index: " + str(start_index))
+                print("E" + str(epoch) + "V Batch start index: " + str(start_index))
                 print("Loss: " + str(loss.item()) + " | BLEU score: " + str(np.mean(bleus)))
                 print("Time elapsed: " + str(time.time() - start_time))
 
@@ -420,11 +420,16 @@ def process_results(model_name, train_loss, valid_loss, valid_bleu):
     
     
 def sample(outputs, temperature):
-    logged = np.log(outputs) / temperature
-    exped = np.exp(logged)
-    sigmoided = exped / np.sum(exped)
+    #logged = np.log(outputs) / temperature
+    #exped = np.exp(logged)
+    #sigmoided = exped / np.sum(exped)
+    distribution = outputs.div(temperature).exp()
+    print ('distribution')
+    print (distribution)
+    return torch.multinomial(distribution, 1)[0]
     
-    return np.random.multinomial(1, sigmoided)
+    
+    #return np.random.multinomial(1, sigmoided)
     
 def generate(model, x_test, cfg):
     # TODO: Given n rows in test data, generate a list of n strings, where each string is the review
@@ -437,82 +442,99 @@ def generate(model, x_test, cfg):
     end_index = cfg['batch_size']
     
     start_time = time.time()
+    softmax = nn.Softmax(dim = 2)
 
     print ('----- Testing -----')
-    while start_index < len(x_test):
-        # takes the minibatch subset
-        batch_x = x_test[start_index:end_index]
-        
-        # sets the outputs as the <SOS> tag for each review
-        outputs = np.zeros((cfg['batch_size'], cfg['output_dim']))
-        outputs[:, cfg['valid_char_len']] = 1
-        
-        # initializes the states
-        ht = None
-        ct = None
-        
-        # initializes the predicted sentences
-        sentences = [[] for _ in range(cfg['batch_size'])]
-        
-        # samples the next character until all are either <EOS> or <PAD> (all 1s are in the last 2 columns)
-        while np.sum(outputs[:, :-2]) < cfg['batch_size'] and len(sentences[0]) < cfg['max_len']:
-            # concatenates the outputs (previous characters) to the metadata to get the inputs
-            final_batch_x = np.hstack((batch_x, outputs))
-            
-            # resizes the array into batch_size x sequence_length (1) x feature_length
-            final_batch_x.resize(final_batch_x.shape[0], 1, final_batch_x.shape[1])
+    with torch.no_grad():
+        while start_index < len(x_test):
+            # takes the minibatch subset
+            batch_x = x_test[start_index:end_index]
 
-            # converts final input array to tensor
-            final_batch_x = torch.from_numpy(final_batch_x).float().to(computing_device)
+            # sets the outputs as the <SOS> tag for each review
+            outputs = np.zeros((cfg['batch_size'], cfg['output_dim']))
+            outputs[:, cfg['valid_char_len']] = 1
 
-            # passes the final input array to the model's forward pass
-            if isinstance(model, bLSTM):
-                outputs, (ht, ct) = model(final_batch_x, ht, ct)
-                
-            else:
-                outputs, ht = model(final_batch_x, ht)
-                
-            outputs = np.array([sample(c, cfg['gen_temp']) for c in outputs])
-            
-            sentences = np.hstack((sentences, [[np.argmax(c)] for c in outputs]))
-            
-            
-        
-        decoded = [''.join([extended_char[c] for c in review]) for review in sentences]
-        predicted_reviews.append(decoded)
-        '''
-        for s in sentences:
-            decoded = ''
-            for c in s:
-                if c < cfg['valid_char_len']:
-                    decoded = decoded + cfg['valid_char'][c]
-                    
+            # initializes the states
+            ht = None
+            ct = None
+
+            # initializes the predicted sentences
+            sentences = [[] for _ in range(cfg['batch_size'])]
+
+            # samples the next character until all are either <EOS> or <PAD> (all 1s are in the last 2 columns)
+            while np.sum(outputs[:, -2:]) < cfg['batch_size'] and len(sentences[0]) < cfg['max_len']:
+                # concatenates the outputs (previous characters) to the metadata to get the inputs
+                final_batch_x = np.hstack((batch_x, outputs))
+
+                # resizes the array into batch_size x sequence_length (1) x feature_length
+                final_batch_x.resize(final_batch_x.shape[0], 1, final_batch_x.shape[1])
+
+                # converts final input array to tensor
+                final_batch_x = torch.from_numpy(final_batch_x).float().to(computing_device)
+
+                # passes the final input array to the model's forward pass
+                if isinstance(model, bLSTM):
+                    outputs, (ht, ct) = model(final_batch_x, ht, ct)
+
                 else:
-                    break
+                    outputs, ht = model(final_batch_x, ht)
                     
+
+                #outputs = np.array([sample(c[0], cfg['gen_temp']) for c in outputs])
+                #outputs = outputs.numpy()
+                #outputs = outputs.reshape(outputs.shape[0], outputs.shape[2])
+                #outputs = outputs / cfg['gen_temp']
+                #outputs = np.exp(outputs)
+                #outputs = outputs / np.sum(outputs, axis = 1)[:, None]
+                
+                outputs = outputs.div(cfg['gen_temp'])
+                
+                outputs = softmax(outputs)
+                
+                outputs = outputs.contiguous().view(outputs.shape[0], outputs.shape[2])
+                
+                outputs = torch.multinomial(outputs, 1)
+                outputs = outputs.numpy()
+                sentences = np.hstack((sentences, outputs))
+                
+                
+                indexes = outputs.reshape(cfg['batch_size'])
+                outputs = np.zeros((cfg['batch_size'], cfg['output_dim']))
+                outputs[range(cfg['batch_size']), indexes] = 1
+
+
+            decoded = [''.join([extended_char[int(c)] for c in review]) for review in sentences]
             predicted_reviews.append(decoded)
-        '''
+            '''
+            for s in sentences:
+                decoded = ''
+                for c in s:
+                    print(type(c))
+                    decoded = decoded + extended_char[c]
 
-        #print ("Predicted Review: " + predicted_reviews[start_index])
-        print ("Predicted Review: " + decoded[0])
-            
-        print("Batch start index: " + str(start_index))
-        print("Time elapsed: " + str(time.time() - start_time))
+                predicted_reviews.append(decoded)
+            '''
 
-        start_index = end_index
-        end_index += cfg['batch_size']
-        
-        if start_index == len(x_test):
-            break
+            #print ("Predicted Review: " + predicted_reviews[start_index])
+            print ("Predicted Review: " + decoded[0])
 
-        # case when the remaining data count is less than a minibatch
-        if end_index > len(x_test):
-            # adjusts the start and end indices to make the last subset the size of a minibatch
-            end_index = len(x_test)
-            start_index = end_index - cfg['batch_size']
-            
-            # removes the last few predictions to avoid duplicates
-            predicted_reviews = predicted_reviews[:start_index]
+            print("Batch start index: " + str(start_index))
+            print("Time elapsed: " + str(time.time() - start_time))
+
+            start_index = end_index
+            end_index += cfg['batch_size']
+
+            if start_index == len(x_test):
+                break
+
+            # case when the remaining data count is less than a minibatch
+            if end_index > len(x_test):
+                # adjusts the start and end indices to make the last subset the size of a minibatch
+                end_index = len(x_test)
+                start_index = end_index - cfg['batch_size']
+
+                # removes the last few predictions to avoid duplicates
+                predicted_reviews = predicted_reviews[:start_index]
 
     print()
     return predicted_reviews
@@ -523,21 +545,21 @@ def save_to_file(outputs, fname):
     # the file in .txt format.
     raise NotImplementedError
 
-
+    
 ### MAIN FUNCTION ###
 if __name__ == "__main__":
-    train_data_fname = "/datasets/cs190f-public/BeerAdvocateDataset/BeerAdvocate_Train.csv"
-    test_data_fname = "/datasets/cs190f-public/BeerAdvocateDataset/BeerAdvocate_Test.csv"
+    train_data_fname = "Beeradvocate_Train.csv"
+    test_data_fname = "Beeradvocate_Test.csv"
     out_fname = "Output_Reviews.txt"
 
     # loads the data
     train_data = load_data(train_data_fname, cfg['num_data'])
-    test_data = load_data(test_data_fname, 50)
+    #test_data = load_data(test_data_fname, 50)
 
     # processes the data to get the train, valid, and test sets
     train_data, train_labels, beer_to_index = process_train_data(train_data)
     x_train, y_train, x_valid, y_valid = train_valid_split(train_data, train_labels, cfg['train_percentage'])
-    x_test = process_test_data(test_data, beer_to_index)
+    #x_test = process_test_data(test_data, beer_to_index)
 
     # updates the configurations based on the processed data
     update_configurations(x_train.shape[1])
@@ -570,8 +592,8 @@ if __name__ == "__main__":
 
     process_results("LSTM Model " + model_number, train_loss, valid_loss, valid_bleu)
 
-    predicted_reviews = generate(model, x_test, cfg)
-    print (predicted_reviews)
+    #predicted_reviews = generate(model, x_train, cfg)
+    #print (predicted_reviews)
 
     # trains the GRU model
     model = bGRU(cfg).to(computing_device)
@@ -583,6 +605,5 @@ if __name__ == "__main__":
 
     process_results("GRU Model " + model_number, train_loss, valid_loss, valid_bleu)
 
-    predicted_reviews = generate(model, x_test, cfg)
-    print (predicted_reviews)
-
+    #predicted_reviews = generate(model, x_test, cfg)
+    #print (predicted_reviews)
