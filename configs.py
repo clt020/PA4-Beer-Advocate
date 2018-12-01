@@ -7,23 +7,23 @@ cfg['valid_char'] = string.ascii_lowercase + string.digits + '!$\'()*,-.:;? '
 cfg['valid_char_len'] = len(cfg['valid_char'])
 
 # number of data points to use
-cfg['num_data'] = 20000
+cfg['num_data'] = 5000
 
 # parameters of the models (will also be updated in code)
 cfg['input_dim'] = 0 # input dimension of the model; will be updated after processing the dataset
-cfg['hidden_dim'] = 10 # hidden dimension of the model
+cfg['hidden_dim'] = 32 # hidden dimension of the model
 cfg['output_dim'] = cfg['valid_char_len'] + 3 # output dimension of the model; + 3 for <SOS>, <EOS>, and <PAD>
 cfg['layers'] = 1 # number of hidden layers in the model
 
 # parameters for training
 cfg['train_percentage'] = 0.8
 cfg['epochs'] = 15
-cfg['batch_size'] = 16
-cfg['learning_rate'] = 0.001
+cfg['batch_size'] = 32
+cfg['learning_rate'] = 0.01
 cfg['early_stop'] = 3
 
 # parameters for review generation
-cfg['gen_temp'] = 1 # temperature to use while generating reviews
+cfg['gen_temp'] = 0.5 # temperature to use while generating reviews
 cfg['max_len'] = 1000 # maximum character length of the generated reviews
 
 
