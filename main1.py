@@ -545,11 +545,11 @@ def save_to_file(outputs, fname):
     # the file in .txt format.
     raise NotImplementedError
 
-    
+
 ### MAIN FUNCTION ###
 if __name__ == "__main__":
-    train_data_fname = "Beeradvocate_Train.csv"
-    test_data_fname = "Beeradvocate_Test.csv"
+    train_data_fname = "/datasets/cs190f-public/BeerAdvocateDataset/BeerAdvocate_Train.csv"
+    test_data_fname = "/datasets/cs190f-public/BeerAdvocateDataset/BeerAdvocate_Test.csv"
     out_fname = "Output_Reviews.txt"
 
     # loads the data
@@ -579,8 +579,12 @@ if __name__ == "__main__":
     # defines the hyperparameters
     model_number = '1'
 
+    cfg['num_data'] = 20000
+    cfg['batch_size'] = 16
+    
     cfg['hidden_dim'] = 32
     cfg['layers'] = 1
+    cfg['learning_rate'] = 0.01
 
     # trains the LSTM model
     model = bLSTM(cfg).to(computing_device)
